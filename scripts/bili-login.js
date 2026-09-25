@@ -448,6 +448,9 @@ function resolveToken(cliToken) {
       input: 'protocol=https\nhost=github.com\n\n',
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore'],
+      // 凭据管理器有时会卡住（等待 GUI 弹窗、或进程锁冲突），
+      // 超时就当作没有凭据，走"打印 Cookie 手动配置"的降级路径
+      timeout: 8000,
     });
     const m = out.match(/^password=(.+)$/m);
     if (m) return m[1].trim();
