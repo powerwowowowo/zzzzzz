@@ -44,6 +44,15 @@ jobs:
         working-directory: scripts
         run: npm install --no-audit --no-fund
 
+      - name: 二维码位置提示
+        run: |
+          echo "=========================================================="
+          echo "  二维码在【本页面上方的 Summary 面板】里，不在日志中"
+          echo "  Summary 位于日志区域的上面，页面往上滚一点就能看到"
+          echo ""
+          echo "  ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "=========================================================="
+
       - name: 扫码登录
         working-directory: scripts
         env:

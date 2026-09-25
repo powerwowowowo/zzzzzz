@@ -100,6 +100,7 @@ function parseArgs(argv) {
     qrOut: '',
     dryRun: false,
     noOpen: inCI,
+    logQr: false,
     timeout: 180,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -114,6 +115,7 @@ function parseArgs(argv) {
     else if (a === '--timeout') args.timeout = parseInt(next(), 10) || 180;
     else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--no-open') args.noOpen = true;
+    else if (a === '--log-qr') args.logQr = true;
     else if (a === '--open') args.noOpen = false;
     else if (a === '--help' || a === '-h') {
       console.log(
@@ -128,6 +130,7 @@ function parseArgs(argv) {
           '  --proxy <地址>        访问 GitHub 的代理，默认读 HTTPS_PROXY 环境变量',
           '  --extra <Cookie>     追加为第二个账号（多账号用 ||| 连接）',
           '  --no-open            不自动弹出二维码图片',
+          '  --log-qr             在 CI 日志里也输出字符二维码（默认关闭，日志会渲染成色块）',
           '  --qr-out <路径>      把二维码另存为 PNG（GitHub Actions 里作备份用）',
           '  --timeout <秒>        等待扫码的超时，默认 180',
           '',
@@ -341,29 +344,39 @@ function writeToSummary(url, { overwrite = false } = {}) {
   }
 }
 
-async function showQrCode(url, { noOpen, outPath, quiet = false, overwrite = false }) {
+async function showQrCode(
+  url,
+  { noOpen, outPath, quiet = false, overwrite = false, logQr = false }
+) {
+  const inCI = Boolean(process.env.GITHUB_STEP_SUMMARY);
+
   // GitHub Actions 场景优先走 Summary：日志每行都带时间戳前缀，
   // 会破坏二维码左侧静默区，扫起来很不稳。
   if (writeToSummary(url, { overwrite })) {
-    if (!quiet) info('二维码已写入本次运行的 Summary 区域（页面顶部），建议扫那个');
+    if (!quiet) info('二维码已写入本次运行的 Summary 面板（页面顶部），扫那里');
   }
 
   if (!quiet) {
-    // 终端/日志里再输出一份作为备份。
-    // 注意：Actions 日志每行都有时间戳前缀，会破坏静默区，扫码优先用 Summary。
-    const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
-    console.log('');
-    if (process.env.GITHUB_STEP_SUMMARY) {
-      console.log('（下面这份是日志文本版；扫码请优先用页面顶部的 Summary 区域）');
+    if (logQr || !inCI) {
+      // 只有本地终端（或显式 --log-qr）才输出字符二维码。
+      // GitHub 的日志视图会把 ANSI 反色渲染成一整块色块 —— 既难看又完全扫不出来，
+      // 所以 CI 环境下默认不输出。
+      const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
+      console.log('');
+      console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
+      console.log('');
+      console.log(terminal);
+      console.log('==============================================================');
+      console.log('');
+    } else {
+      console.log('');
+      console.log('（日志里刻意不输出二维码图形：Actions 日志视图会把它渲染成色块，扫不出来）');
+      console.log('  请扫本次运行 Summary 面板里的二维码，或下载 login-qrcode 附件查看图片。');
+      console.log('');
     }
-    console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
-    console.log('');
-    console.log(terminal);
-    console.log('==============================================================');
-    console.log('');
   }
 
-  // 再落一张 PNG：本地便于直接查看，CI 里作为日志显示异常时的备份
+  // 另存一张 PNG：本地便于直接查看，CI 里供 artifact 与 qr 分支使用
   const pngPath = outPath
     ? path.resolve(outPath)
     : path.join(os.tmpdir(), 'bili-login-qrcode.png');
@@ -476,7 +489,11 @@ async function main() {
 
   info('');
   info('=== B站扫码登录 ===');
-  info('提示：手机上用「哔哩哔哩」App 的扫一扫，扫描下方二维码并在手机上确认。');
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    info('提示：二维码在本页面上方的 Summary 面板里，用「哔哩哔哩」App 扫一扫并确认。');
+  } else {
+    info('提示：用「哔哩哔哩」App 的扫一扫，扫描下方二维码并在手机上确认。');
+  }
   info('');
 
   // ---- 1. 申请二维码 ----
@@ -491,7 +508,11 @@ async function main() {
   let qrcodeKey = genData.qrcode_key;
   let qrUrl = genData.url;
 
-  await showQrCode(qrUrl, { noOpen: args.noOpen, outPath: args.qrOut });
+  await showQrCode(qrUrl, {
+    noOpen: args.noOpen,
+    outPath: args.qrOut,
+    logQr: args.logQr,
+  });
 
   // ---- 2. 轮询扫码结果 ----
   info('');
