@@ -75,15 +75,15 @@ DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx; buvid3=xxx
 | :--- | :--- |
 | `WEB_PROXY` | 访问 B站接口的代理，形如 `http://host:port`。仅在 Actions 出口 IP 被 B站风控时才需要配 |
 
-### 3. 启用 Actions
+### 3. 启用 Actions 并自检
 
 刚建好的仓库默认关闭 Actions：
 
 1. 进入 `Actions` 标签页，点 **I understand my workflows, go ahead and enable them**
-2. 左侧选中 `Bili 日常任务` → 右侧 `Run workflow` 手动跑一次
-3. 再对 `B站动态抽奖` 重复一次
+2. 先跑 **环境自检**。它会编译 C# 引擎、安装抽奖依赖、并调用 B站只读接口校验 Cookie —— **不执行任何真实任务**（不投币、不关注、不转发）
+3. 自检全绿后，再手动跑一次 `Bili 日常任务` 和 `B站动态抽奖`
 
-手动跑通后，定时任务才会按计划启动。
+手动跑通后，定时任务才会按计划启动。之后每次改了 Secrets，也可以重跑一次自检确认。
 
 ---
 
@@ -200,9 +200,11 @@ node main.js start
 BlBl/
 ├── .github/workflows/
 │   ├── bili-daily.yml          # 日常任务（.NET 10）
-│   └── lottery-daily.yml       # 动态抽奖（Node.js 22）
+│   ├── lottery-daily.yml       # 动态抽奖（Node.js 22）
+│   └── self-check.yml          # 环境自检（只读，不执行真实任务）
 ├── scripts/
-│   └── prepare-env.js          # 统一配置下发：一套 Secrets -> 两个引擎
+│   ├── prepare-env.js          # 统一配置下发：一套 Secrets -> 两个引擎
+│   └── check-cookies.js        # Cookie 有效性只读校验
 ├── bili-tool/                  # BiliBiliToolPro 4.0.5
 ├── lottery/                    # LotteryAutoScript 2.11.2
 └── .gitignore

@@ -1,0 +1,94 @@
+﻿# ============================================================
+# 环境自检 — 不执行任何真实任务，只验证这条流水线本身是否可用
+# 建议在配好 Secrets 之后、正式定时任务之前手动跑一次
+# ============================================================
+name: 环境自检
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 构建链路与账号校验
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      HUSKY: '0'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: lottery/package.json
+
+      - name: 回显工具链版本
+        run: |
+          echo "dotnet : $(dotnet --version)"
+          echo "node   : $(node --version)"
+          echo "npm    : $(npm --version)"
+
+      - name: 编译 C# 引擎（仅 Console 依赖链）
+        working-directory: bili-tool
+        run: >
+          dotnet publish src/Ray.BiliBiliTool.Console/Ray.BiliBiliTool.Console.csproj
+          --configuration Release
+          --output "${{ runner.temp }}/bilitool"
+          --nologo
+          -p:HUSKY=0
+
+      - name: 确认 C# 产物完整
+        run: |
+          set -euo pipefail
+          OUT="${{ runner.temp }}/bilitool"
+          for f in Ray.BiliBiliTool.Console.dll appsettings.json; do
+            if [ -f "${OUT}/${f}" ]; then
+              echo "OK   ${f}"
+            else
+              echo "::error title=产物缺失::未找到 ${f}"
+              exit 1
+            fi
+          done
+
+      - name: 安装抽奖引擎依赖
+        working-directory: lottery
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: 确认抽奖引擎可加载
+        working-directory: lottery
+        run: node -e "require('./lib'); console.log('OK   抽奖引擎模块加载正常')"
+
+      - name: 校验 B站 Cookie 有效性（只读）
+        env:
+          BILI_COOKIES: ${{ secrets.BILI_COOKIES }}
+          BILI_COOKIE: ${{ secrets.BILI_COOKIE }}
+        run: node scripts/check-cookies.js
+
+      - name: 自检汇总
+        if: always()
+        run: |
+          cat <<'EOF'
+          ============================================
+          自检结束。请确认以下事项：
+            1. C# 引擎编译通过、产物完整
+            2. Node 抽奖引擎依赖安装、模块可加载
+            3. BILI_COOKIES 校验结果（未配置时会提示跳过）
+          全部通过后，定时任务即可正常工作。
+          ============================================
+          EOF
