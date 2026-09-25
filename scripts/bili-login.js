@@ -241,23 +241,34 @@ function openFile(p) {
 
 /**
  * 渲染一份「纯字符」二维码（不含 ANSI 转义），专供 GitHub Actions 的
- * Job Summary 使用 —— 那里没有日志的时间戳前缀，代码块又是等宽字体，
- * 二维码能完整呈现，比日志里可靠得多。
+ * Job Summary 使用 —— 那里没有日志的时间戳前缀，代码块又是等宽字体。
+ *
+ * 用半块符号（▀▄█）把上下两个模块并成一个字符，这样在等宽字体下
+ * 每个模块仍是正方形，整张码只有 40 多字符宽，不会被窄窗口裁掉。
  */
 function renderPlainQr(url) {
   const qr = QRCode.create(url, { errorCorrectionLevel: 'L' });
   const size = qr.modules.size;
   const data = qr.modules.data;
-  const quiet = 2; // 静默区，缺了会影响识别
-  const blank = '  '.repeat(size + quiet * 2);
+  const quiet = 4; // 规范要求 4 模块静默区，少了会明显影响识别
+
+  const at = (x, y) => (x >= 0 && x < size && y >= 0 && y < size ? data[y * size + x] : 0);
+
   const lines = [];
+  const blank = ' '.repeat(size + quiet * 2);
   for (let i = 0; i < quiet; i++) lines.push(blank);
-  for (let y = 0; y < size; y++) {
-    let line = '  '.repeat(quiet);
-    for (let x = 0; x < size; x++) line += data[y * size + x] ? '██' : '  ';
-    line += '  '.repeat(quiet);
+
+  for (let y = 0; y < size; y += 2) {
+    let line = ' '.repeat(quiet);
+    for (let x = 0; x < size; x++) {
+      const top = at(x, y);
+      const bottom = at(x, y + 1);
+      line += top && bottom ? '█' : top ? '▀' : bottom ? '▄' : ' ';
+    }
+    line += ' '.repeat(quiet);
     lines.push(line);
   }
+
   for (let i = 0; i < quiet; i++) lines.push(blank);
   return lines.join('\n');
 }
@@ -284,22 +295,41 @@ function writeToSummary(url, { overwrite = false } = {}) {
     } catch (e) {
       warn(`纯字符二维码渲染失败：${e.message}`);
     }
+
+    // 图片版交给公开的二维码渲染服务，GitHub 会通过 camo 代理加载，
+    // 尺寸远大于字符版，手机上更好扫。
+    const qrImg = (px) =>
+      `https://api.qrserver.com/v1/create-qr-code/?size=${px}x${px}&margin=12&data=` +
+      encodeURIComponent(url);
+
     const parts = [
       '## 请用「哔哩哔哩」App 扫描下方二维码',
       '',
       '扫码后请在手机上点击确认，本工作流会自动把登录态写入 `BILI_COOKIES`。',
       '',
+      `![B站登录二维码](${qrImg(420)})`,
+      '',
     ];
+
     if (plain) {
-      parts.push('```', plain, '```', '');
+      parts.push(
+        `如果上面的图片没加载出来，[点这里在新标签页打开大图](${qrImg(600)})，或者扫下面这份字符版（手机凑近屏幕、或把浏览器缩放调大些）：`,
+        '',
+        '```',
+        plain,
+        '```',
+        ''
+      );
     }
+
     parts.push(
-      '> 二维码有效期约 3 分钟，过期后会自动换新的一张，以 Summary 里最新的为准。',
-      '> 若图形显示不完整，可在手机上打开下面这个原始链接：',
+      '> 二维码有效期约 3 分钟，过期后会自动换新的一张，以本区域最新的为准。',
+      '> 若都扫不出来，可直接在手机上打开这个原始链接自行生成二维码：',
       '>',
       `> ${url}`,
       ''
     );
+
     const md = parts.join('\n') + '\n';
     // 首次追加，换码时覆盖 —— 保证 Summary 里始终只有一张最新二维码
     if (overwrite) fs.writeFileSync(summaryPath, md, 'utf8');
@@ -319,9 +349,13 @@ async function showQrCode(url, { noOpen, outPath, quiet = false, overwrite = fal
   }
 
   if (!quiet) {
-    // 终端/日志里再输出一份作为备份
+    // 终端/日志里再输出一份作为备份。
+    // 注意：Actions 日志每行都有时间戳前缀，会破坏静默区，扫码优先用 Summary。
     const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
     console.log('');
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      console.log('（下面这份是日志文本版；扫码请优先用页面顶部的 Summary 区域）');
+    }
     console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
     console.log('');
     console.log(terminal);
