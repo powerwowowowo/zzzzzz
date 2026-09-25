@@ -33,15 +33,49 @@
 
 ## 二、部署步骤
 
-### 1. 获取 B站 Cookie
+### 1. 获取登录凭据（扫码，不用抓包）
 
-浏览器登录 B站 → `F12` 打开控制台 → `Application` → `Cookies` → `https://www.bilibili.com`，复制这几个字段拼成一行：
+> **为什么不能用账号密码？**
+> B 站密码登录强制人机验证（极验 GeeTest）：先调 `/x/passport-login/captcha` 拿 `gt`/`challenge`，
+> 用户在浏览器里拖滑块拿到 `validate`/`seccode`，登录接口的 `token` 还和这次验证绑定。
+> 官方文档原话是"扫码登录不需要进行人机验证"。GitHub Actions 是无人值守环境，过不了滑块，
+> 所以密码登录这条路在 B 站走不通。扫码登录才是唯一可行的自动化路径，而且它比抓包更省事。
+
+**方式一：扫码自动写入（推荐）**
+
+```bash
+cd scripts && npm install && cd ..     # 首次需要，装两个小依赖
+node scripts/bili-login.js
+```
+
+终端会直接渲染出二维码（同时另存一张 PNG 并自动打开），用手机「哔哩哔哩」App 扫一扫并确认，
+脚本会自动换取 Cookie、校验登录态、加密后写入仓库的 `BILI_COOKIES` Secret —— 全程不需要复制粘贴。
+
+常用参数：
+
+| 参数 | 说明 |
+| :--- | :--- |
+| `--dry-run` | 只登录并打印 Cookie，不写 Secret |
+| `--secret <名称>` | 写入别的 Secret 名 |
+| `--extra "<Cookie>"` | 追加为第二个账号（多账号用 `\|\|\|` 连接） |
+| `--proxy <地址>` | 访问 GitHub 的代理，默认读 `HTTPS_PROXY` 环境变量 |
+| `--token <PAT>` | 显式指定 GitHub 凭据 |
+| `--no-open` | 不自动弹出二维码图片 |
+
+凭据来源优先级：`--token` > 环境变量 `GITHUB_TOKEN`/`GH_TOKEN` > git 凭据管理器。
+写到 GitHub 的值用 libsodium sealed box 加密，明文不离开本机。
+
+**方式二：手动抓 Cookie**
+
+浏览器登录 B站 → `F12` → `Application` → `Cookies` → `https://www.bilibili.com`，拼成一行：
 
 ```
 DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx; buvid3=xxx
 ```
 
-> `SESSDATA` 是核心凭据，有效期约 30 天，过期需要重新获取并更新 Secret。
+> 扫码拿到的是一份**独立会话**，跟你在浏览器/App 里的登录互不干扰 ——
+> 你在别处退出登录、清理浏览器数据，都不会让 Actions 里这份凭据失效。
+> `SESSDATA` 本身有效期约 30 天，到期重跑一次脚本扫码即可。
 
 ### 2. 配置 Secrets
 
@@ -162,7 +196,20 @@ GitHub 会在仓库**连续 60 天没有任何提交活动**后自动停用定�
 
 **Q：Cookie 失效了怎么办？**
 
-跑完后看 Actions 日志里的「Cookie有效性检测」，失效会明确报出 `登录失败 COOKIE 已失效 UID:xxx`。重新获取 Cookie 并更新 `BILI_COOKIES` 这个 Secret 即可。
+跑完后看 Actions 日志里的「Cookie有效性检测」，失效会明确报出 `登录失败 COOKIE 已失效 UID:xxx`。
+此时重新执行一次 `node scripts/bili-login.js` 扫码即可，脚本会自动更新 Secret。
+
+**Q：扫码脚本报 `unable to get local issuer certificate`？**
+
+这说明你的网络里有个工具（Watt Toolkit / Steamcommunity302 等）在对 GitHub 做 TLS 中间人加速，
+它的根证书只装在系统证书库里。脚本已经会自动把系统证书合并进 Node 的信任链，正常情况下无需干预。
+如果仍报错，检查 Node 版本是否 ≥ 22.15（脚本依赖 `tls.getCACertificates`），
+或改用代理：`node scripts/bili-login.js --proxy http://127.0.0.1:端口`。
+
+**Q：为什么不用账号密码登录？**
+
+见上文「获取登录凭据」一节。B 站密码登录强制极验人机验证，必须在浏览器里手动拖滑块，
+任何无人值守环境都过不去。这不是本项目没做，而是 B 站设计上就不允许。
 
 **Q：为什么子目录里也有 `.github/workflows`？**
 
@@ -176,7 +223,12 @@ GitHub 会在仓库**连续 60 天没有任何提交活动**后自动停用定�
 
 ## 七、本地运行（可选）
 
+需要 .NET SDK 10 与 Node.js 22。
+
 ```bash
+# 先拿一份 Cookie（不写 Secret，直接打印出来供本地使用）
+node scripts/bili-login.js --dry-run
+
 # C# 日常任务
 cd bili-tool
 export HUSKY=0
@@ -190,8 +242,6 @@ export COOKIE="DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx"
 node main.js start
 ```
 
-需要 .NET SDK 10 与 Node.js 22。
-
 ---
 
 ## 八、目录结构
@@ -203,6 +253,7 @@ BlBl/
 │   ├── lottery-daily.yml       # 动态抽奖（Node.js 22）
 │   └── self-check.yml          # 环境自检（只读，不执行真实任务）
 ├── scripts/
+│   ├── bili-login.js           # 扫码登录并自动写入 GitHub Secret
 │   ├── prepare-env.js          # 统一配置下发：一套 Secrets -> 两个引擎
 │   └── check-cookies.js        # Cookie 有效性只读校验
 ├── bili-tool/                  # BiliBiliToolPro 4.0.5

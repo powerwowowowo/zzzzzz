@@ -1,0 +1,15 @@
+{
+  "name": "blbl-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BlBl 仓库辅助脚本：B站扫码登录并自动同步到 GitHub Secrets",
+  "type": "commonjs",
+  "scripts": {
+    "login": "node bili-login.js"
+  },
+  "dependencies": {
+    "https-proxy-agent": "^9.1.0",
+    "qrcode": "^1.5.4",
+    "tweetsodium": "^0.0.5"
+  }
+}
