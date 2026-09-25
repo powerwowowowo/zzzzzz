@@ -1,0 +1,23 @@
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudText>确定要删除账号 <strong>@UserId</strong> 吗？</MudText>
+        <MudText Typo="Typo.body2" Class="mt-2">此操作不可撤销，后面的账号序号会自动前移。</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">取消</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="Submit">删除</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public string UserId { get; set; } = "";
+
+    private void Cancel() => MudDialog.Cancel();
+    private void Submit() => MudDialog.Close(DialogResult.Ok(true));
+}

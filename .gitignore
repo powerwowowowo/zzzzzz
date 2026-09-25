@@ -1,0 +1,47 @@
+# ============================================================
+# BlBl — B 站自动化融合仓库
+# 子项目自带的 .gitignore 依然生效，此处只补充通用规则
+# ============================================================
+
+# ---- 凭据与本地配置（绝不入库）----
+.env
+.env.*
+!.env.example
+cookies.json
+**/cookies.json
+lottery/env.js
+
+# ---- 运行时产物 ----
+*.log
+Logs/
+*.db
+*.db-shm
+*.db-wal
+
+# lottery 运行数据
+lottery/dyids/
+lottery/lottery_info/
+lottery/lottery_dyids/
+lottery/.dyids/
+lottery/.lottery_info/
+
+# ---- .NET 构建产物 ----
+[Bb]in/
+[Oo]bj/
+publish/
+artifacts/
+*.nupkg
+TestResults/
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# ---- IDE / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

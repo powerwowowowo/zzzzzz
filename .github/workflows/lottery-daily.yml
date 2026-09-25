@@ -1,0 +1,116 @@
+﻿# ============================================================
+# B站动态抽奖 — Node.js 引擎（LotteryAutoScript）
+# 负责：扫描抽奖动态、转关评一体参与、中奖检测、动态清理
+# ============================================================
+name: B站动态抽奖
+
+on:
+  schedule:
+    # 23:23 UTC = 09:23 (UTC+8)，与日常任务错开一个多小时
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '要执行的操作'
+        required: true
+        default: start
+        type: choice
+        options:
+          - start
+          - check
+          - clear
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lottery
+  cancel-in-progress: false
+
+jobs:
+  lottery:
+    name: 动态抽奖 (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        working-directory: lottery
+
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: lottery/package.json
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+
+      - name: 下发账号与推送配置
+        working-directory: ${{ github.workspace }}
+        env:
+          BILI_COOKIES: ${{ secrets.BILI_COOKIES }}
+          BILI_COOKIE: ${{ secrets.BILI_COOKIE }}
+          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }}
+          SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          QYWX_KEY: ${{ secrets.QYWX_KEY }}
+          DINGTALK_TOKEN: ${{ secrets.DINGTALK_TOKEN }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          WEB_PROXY: ${{ secrets.WEB_PROXY }}
+        run: node scripts/prepare-env.js lottery
+
+      - name: 准备抽奖策略文件
+        run: |
+          set -euo pipefail
+          if [ -f my_config.js ]; then
+            echo "检测到仓库内的 my_config.js，直接使用"
+          else
+            cp my_config.example.js my_config.js
+            echo "未提供 my_config.js，已从上游模板生成默认策略"
+          fi
+
+      - name: 执行
+        env:
+          ACTION: ${{ inputs.action || 'start' }}
+        run: |
+          set -o pipefail
+          node main.js "${ACTION}" 2>&1 | tee run.log
+
+      - name: 检查运行结果
+        if: always()
+        run: |
+          if [ ! -f run.log ]; then
+            echo "未找到运行日志，跳过检查"
+            exit 0
+          fi
+          if grep -qE "Cookie.*已失效|登录失败" run.log; then
+            echo "::warning title=Cookie已失效::抽奖引擎登录失败，请更新 BILI_COOKIES Secret"
+          fi
+          if grep -q "结束运行" run.log; then
+            echo "抽奖引擎已正常结束"
+          else
+            echo "::warning title=运行未正常收尾::未检测到结束标记，可能被超时中断，建议查看日志"
+          fi
+
+      - name: 上传运行数据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lottery-data
+          path: |
+            lottery/run.log
+            lottery/dyids/
+            lottery/lottery_info/
+            lottery/lottery_dyids/
+          retention-days: 7
+          if-no-files-found: ignore

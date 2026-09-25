@@ -1,0 +1,79 @@
+name: "Package Node.js project into an executable"
+
+on:
+  push:
+    branches:
+      - main
+      - pkg
+    paths:
+      - "lib/**"
+      - "*.js"
+      - "*.json"
+      - ".github/workflows/pkg.yml"
+      - "script/build/pkg.sh"
+  workflow_dispatch:
+
+jobs:
+  x64:
+    runs-on: ubuntu-latest
+    name: node${{ matrix.nodev }}-${{ matrix.platform }}-x64
+    strategy:
+      matrix:
+        include:
+          - platform: linux
+            nodev: 18
+          - platform: macos
+            nodev: 18
+          - platform: win
+            nodev: 18
+    steps:
+      - name: "Checkout codes"
+        uses: actions/checkout@v6
+      - name: "Use Node.js"
+        uses: actions/setup-node@v6
+        with:
+          node-version: "*"
+      - name: "Pkg this"
+        run: |
+          npm run pkg "node${{ matrix.nodev }}-${{ matrix.platform }}-x64"
+      - name: "Upload to artifact"
+        uses: actions/upload-artifact@v7
+        with:
+          name: node${{ matrix.nodev }}-${{ matrix.platform }}-x64
+          path: "dist/*.zip"
+      - name: "Upload to release draft"
+        uses: softprops/action-gh-release@v3
+        with:
+          files: "dist/*.zip"
+          tag_name: "v2"
+          draft: true
+          overwrite_files: true
+          token: ${{ secrets.GH_TOKEN }}
+  arm64:
+    runs-on: ubuntu-latest
+    name: node18-${{ matrix.platform }}-arm64
+    strategy:
+      matrix:
+        include:
+          - platform: linux
+          - platform: linuxstatic
+          - platform: alpine
+    steps:
+      - name: "Checkout codes"
+        uses: actions/checkout@v6
+      - name: "Pkg this"
+        run: |
+          npm run pkg "node18-${{ matrix.platform }}-arm64"
+      - name: "Upload to artifact"
+        uses: actions/upload-artifact@v7
+        with:
+          name: node18-${{ matrix.platform }}-arm64
+          path: "dist/*.zip"
+      - name: "Upload to release draft"
+        uses: softprops/action-gh-release@v3
+        with:
+          files: "dist/*.zip"
+          tag_name: "v2"
+          draft: true
+          overwrite_files: true
+          token: ${{ secrets.GH_TOKEN }}

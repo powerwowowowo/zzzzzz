@@ -1,0 +1,34 @@
+@page "/login"
+@rendermode InteractiveServer
+
+@if (_loginError)
+{
+    <MudAlert Severity="Severity.Error" Elevation="0" Class="mx-auto my-4" Style="max-width: 500px;">
+        Incorrect username or password. Please try again.
+    </MudAlert>
+}
+
+<form action="/auth/login" method="post">
+    <input type="hidden" name="returnUrl" value="@returnUrl" />
+
+    <MudCard Class="mx-auto my-4" Style="max-width: 500px;">
+        <MudCardHeader>
+            <MudText Typo="Typo.h5">登录</MudText>
+        </MudCardHeader>
+        <MudCardContent>
+            <MudTextField @bind-Value="_username" Name="username" Label="用户名" Required="true" RequiredError="Username cannot be empty" />
+            <MudTextField @bind-Value="_password" Name="password" Label="密码" Required="true" RequiredError="Password cannot be empty"
+                          InputType="@_passwordInput" Adornment="Adornment.End"
+                          AdornmentIcon="@_passwordInputIcon" OnAdornmentClick="TogglePasswordVisibility" />
+        </MudCardContent>
+        <MudCardActions>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                       Class="ml-auto">登录</MudButton>
+        </MudCardActions>
+    </MudCard>
+</form>
+
+<MudThemeProvider/>
+<MudPopoverProvider/>
+<MudDialogProvider/>
+<MudSnackbarProvider/>

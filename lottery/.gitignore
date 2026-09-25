@@ -1,0 +1,16 @@
+node_modules/
+.vscode/
+tests/
+dyids/
+lottery_info/
+lottery_dyids/
+dist/
+.env
+*.log
+*.zip
+package-lock.json
+env.js
+# 注意：my_config.js 由本融合仓库有意纳入版本管理，
+# 用于持久化自定义抽奖策略（UIDs / TAGs / AI 接口等），
+# 不含任何凭据。凭据一律走 GitHub Secrets -> env.js / 环境变量。
+!my_config.js

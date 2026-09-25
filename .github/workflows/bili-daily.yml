@@ -1,0 +1,138 @@
+﻿# ============================================================
+# Bili 日常任务 — C# / .NET 10 引擎（BiliBiliToolPro）
+# 负责：每日经验（登录·观看·分享·投币）、漫画签到、银瓜子兑换、
+#       大会员福利、大积分、月底充电、批量取关
+# ============================================================
+name: Bili 日常任务
+
+on:
+  schedule:
+    # GitHub Actions 的 cron 一律按 UTC 计算
+    # 00:17 UTC = 08:17 (UTC+8)，刻意避开整点，减少与全站爬虫撞车
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: '要运行的任务，用 & 连接；留空则按当日日期自动组合'
+        required: false
+        default: ''
+        type: string
+
+# 只读权限，够用即可
+permissions:
+  contents: read
+
+# 同一时刻只跑一轮，避免两轮任务并发触发风控
+concurrency:
+  group: bili-daily
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    name: 日常任务 (.NET)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: bili-tool
+
+    env:
+      # 上游 csproj 里有 Husky 钩子安装目标，CI 中不需要，显式关掉
+      HUSKY: '0'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      # 保证日期判断与日志时间戳都是北京时间
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          # 注意：本仓库启用了集中式包版本管理且没有 packages.lock.json，
+          # 打开 setup-dotnet 的 cache 会直接报错，因此这里保持关闭
+
+      - name: 下发账号与推送配置
+        working-directory: ${{ github.workspace }}
+        env:
+          BILI_COOKIES: ${{ secrets.BILI_COOKIES }}
+          BILI_COOKIE: ${{ secrets.BILI_COOKIE }}
+          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }}
+          SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          QYWX_KEY: ${{ secrets.QYWX_KEY }}
+          DINGTALK_TOKEN: ${{ secrets.DINGTALK_TOKEN }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          WEB_PROXY: ${{ secrets.WEB_PROXY }}
+        run: node scripts/prepare-env.js bili-tool
+
+      - name: 编译 Console 依赖链
+        run: >
+          dotnet publish src/Ray.BiliBiliTool.Console/Ray.BiliBiliTool.Console.csproj
+          --configuration Release
+          --output "${{ runner.temp }}/bilitool"
+          --nologo
+          -p:HUSKY=0
+
+      - name: 计算当日任务清单
+        id: plan
+        working-directory: ${{ github.workspace }}
+        env:
+          INPUT_TASKS: ${{ inputs.tasks }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TASKS}" ]; then
+            TASKS="${INPUT_TASKS}"
+            echo "来源：手动指定"
+          else
+            DAY=$(date +%d)
+            # 每天都做的：每日经验 + 漫画签到 + 银瓜子兑换
+            TASKS="Daily&Manga&Silver2Coin"
+            # 每月 1~3 号反复尝试，避免 1 号当天接口异常导致整月错过
+            case "${DAY}" in
+              01|02|03)
+                TASKS="${TASKS}&VipPrivilege&MangaPrivilege&VipBigPoint&UnfollowBatched"
+                ;;
+            esac
+            # 月底充电：只在 28 号执行，防止每天都扣 B 币
+            if [ "${DAY}" = "28" ]; then
+              TASKS="${TASKS}&Charge"
+            fi
+            echo "来源：按日期自动组合（${DAY} 日）"
+          fi
+          echo "tasks=${TASKS}" >> "${GITHUB_OUTPUT}"
+          echo "本次将执行：${TASKS}"
+
+      - name: 执行任务
+        working-directory: ${{ runner.temp }}/bilitool
+        run: dotnet Ray.BiliBiliTool.Console.dll --runTasks "${{ steps.plan.outputs.tasks }}"
+
+      - name: 检查运行结果
+        if: always()
+        working-directory: ${{ runner.temp }}/bilitool
+        run: |
+          LOG=$(ls -t Logs/*.txt 2>/dev/null | head -1 || true)
+          if [ -z "${LOG}" ]; then
+            echo "未找到日志文件，跳过检查"
+            exit 0
+          fi
+          echo "日志文件：${LOG}"
+          if grep -q "登录失败，请检查Cookie" "${LOG}"; then
+            echo "::warning title=Cookie已失效::B站 Cookie 登录失败，请更新 BILI_COOKIES Secret"
+          fi
+          echo "错误行数：$(grep -c '\[ERR\]' "${LOG}" || echo 0)"
+
+      - name: 上传运行日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bili-daily-logs
+          path: ${{ runner.temp }}/bilitool/Logs/
+          retention-days: 7
+          if-no-files-found: ignore
