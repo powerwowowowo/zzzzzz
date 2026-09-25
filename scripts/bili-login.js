@@ -239,26 +239,108 @@ function openFile(p) {
   }
 }
 
-async function showQrCode(url, { noOpen, outPath }) {
-  // 终端内直接渲染（半块字符 + 反色，保证对比度），不依赖任何外部服务
-  const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
-  console.log('');
-  console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
-  console.log('');
-  console.log(terminal);
-  console.log('==============================================================');
-  console.log('');
+/**
+ * 渲染一份「纯字符」二维码（不含 ANSI 转义），专供 GitHub Actions 的
+ * Job Summary 使用 —— 那里没有日志的时间戳前缀，代码块又是等宽字体，
+ * 二维码能完整呈现，比日志里可靠得多。
+ */
+function renderPlainQr(url) {
+  const qr = QRCode.create(url, { errorCorrectionLevel: 'L' });
+  const size = qr.modules.size;
+  const data = qr.modules.data;
+  const quiet = 2; // 静默区，缺了会影响识别
+  const blank = '  '.repeat(size + quiet * 2);
+  const lines = [];
+  for (let i = 0; i < quiet; i++) lines.push(blank);
+  for (let y = 0; y < size; y++) {
+    let line = '  '.repeat(quiet);
+    for (let x = 0; x < size; x++) line += data[y * size + x] ? '██' : '  ';
+    line += '  '.repeat(quiet);
+    lines.push(line);
+  }
+  for (let i = 0; i < quiet; i++) lines.push(blank);
+  return lines.join('\n');
+}
 
-  // 同时落一张 PNG：本地便于直接查看，CI 里作为日志显示异常时的备份
+/** 往 Actions Summary 追加一段 Markdown（不在 Actions 环境下静默跳过） */
+function appendSummary(md) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  try {
+    fs.appendFileSync(summaryPath, md + '\n', 'utf8');
+  } catch {
+    /* Summary 写不进去不影响主流程 */
+  }
+}
+
+/** 把二维码写进 Actions 的 Summary 区域（顶部那块，最显眼也最清晰） */
+function writeToSummary(url, { overwrite = false } = {}) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return false;
+  try {
+    let plain = '';
+    try {
+      plain = renderPlainQr(url);
+    } catch (e) {
+      warn(`纯字符二维码渲染失败：${e.message}`);
+    }
+    const parts = [
+      '## 请用「哔哩哔哩」App 扫描下方二维码',
+      '',
+      '扫码后请在手机上点击确认，本工作流会自动把登录态写入 `BILI_COOKIES`。',
+      '',
+    ];
+    if (plain) {
+      parts.push('```', plain, '```', '');
+    }
+    parts.push(
+      '> 二维码有效期约 3 分钟，过期后会自动换新的一张，以 Summary 里最新的为准。',
+      '> 若图形显示不完整，可在手机上打开下面这个原始链接：',
+      '>',
+      `> ${url}`,
+      ''
+    );
+    const md = parts.join('\n') + '\n';
+    // 首次追加，换码时覆盖 —— 保证 Summary 里始终只有一张最新二维码
+    if (overwrite) fs.writeFileSync(summaryPath, md, 'utf8');
+    else fs.appendFileSync(summaryPath, md, 'utf8');
+    return true;
+  } catch (e) {
+    warn(`写入 Summary 失败：${e.message}`);
+    return false;
+  }
+}
+
+async function showQrCode(url, { noOpen, outPath, quiet = false, overwrite = false }) {
+  // GitHub Actions 场景优先走 Summary：日志每行都带时间戳前缀，
+  // 会破坏二维码左侧静默区，扫起来很不稳。
+  if (writeToSummary(url, { overwrite })) {
+    if (!quiet) info('二维码已写入本次运行的 Summary 区域（页面顶部），建议扫那个');
+  }
+
+  if (!quiet) {
+    // 终端/日志里再输出一份作为备份
+    const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
+    console.log('');
+    console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
+    console.log('');
+    console.log(terminal);
+    console.log('==============================================================');
+    console.log('');
+  }
+
+  // 再落一张 PNG：本地便于直接查看，CI 里作为日志显示异常时的备份
   const pngPath = outPath
     ? path.resolve(outPath)
-    : path.join(os.tmpdir(), `bili-login-qrcode-${Date.now()}.png`);
+    : path.join(os.tmpdir(), 'bili-login-qrcode.png');
   try {
-    await QRCode.toFile(pngPath, url, { width: 480, margin: 1 });
-    info(`二维码图片：${pngPath}`);
-    if (!noOpen) {
-      openFile(pngPath);
-      info('已尝试用系统默认程序打开该图片');
+    await QRCode.toFile(pngPath, url, { width: 480, margin: 2 });
+    if (!quiet) {
+      info(`二维码图片：${pngPath}`);
+      if (!noOpen) {
+        openFile(pngPath);
+        info('已尝试用系统默认程序打开该图片');
+      }
     }
   } catch (e) {
     warn(`生成二维码图片失败（不影响扫码）：${e.message}`);
@@ -372,7 +454,8 @@ async function main() {
     die(`二维码接口返回异常：${gen.body.slice(0, 200)}`);
   }
   if (!genData || !genData.qrcode_key) die('未能获取 qrcode_key，B站接口可能已变更');
-  const { qrcode_key: qrcodeKey, url: qrUrl } = genData;
+  let qrcodeKey = genData.qrcode_key;
+  let qrUrl = genData.url;
 
   await showQrCode(qrUrl, { noOpen: args.noOpen, outPath: args.qrOut });
 
@@ -383,6 +466,7 @@ async function main() {
   const deadline = Date.now() + args.timeout * 1000;
   const startedAt = Date.now();
   let lastBeat = startedAt;
+  let qrRefreshCount = 0;
   let cookiePairs = [];
   let refreshToken = '';
   let lastState = '';
@@ -415,7 +499,35 @@ async function main() {
       }
       continue;
     }
-    if (stateCode === 86038) die('二维码已失效，请重新运行本次命令');
+    if (stateCode === 86038) {
+      // B站侧二维码约 3 分钟过期，这里自动换一张新的继续等，用户不用抢时间
+      qrRefreshCount++;
+      if (qrRefreshCount > 5) die('二维码连续失效多次，请稍后重试');
+      info(`  · 二维码已过期，已自动换新（第 ${qrRefreshCount + 1} 张，请以 Summary 里最新的为准）`);
+
+      const again = await request(
+        'https://passport.bilibili.com/x/passport-login/web/qrcode/generate'
+      );
+      let againData = null;
+      try {
+        againData = JSON.parse(again.body).data;
+      } catch {
+        /* 交给下面统一报错 */
+      }
+      if (!againData || !againData.qrcode_key) die('刷新二维码失败，请重新运行');
+      qrcodeKey = againData.qrcode_key;
+      qrUrl = againData.url;
+
+      // 覆盖 Summary 与 PNG，日志不再重复输出整块二维码
+      await showQrCode(qrUrl, {
+        noOpen: true,
+        outPath: args.qrOut,
+        quiet: true,
+        overwrite: true,
+      });
+      lastState = '';
+      continue;
+    }
     if (stateCode === 0) {
       cookiePairs = setCookieToPairs(poll.headers['set-cookie']);
       refreshToken = (pd.data && pd.data.refresh_token) || '';
@@ -430,7 +542,21 @@ async function main() {
     }
   }
 
-  if (cookiePairs.length === 0) die('等待超时，未完成扫码登录');
+  if (cookiePairs.length === 0) {
+    appendSummary(
+      [
+        '---',
+        '',
+        '### ❌ 等待超时，未完成扫码登录',
+        '',
+        '- 二维码有效期约 3 分钟，超时后需要重新运行本工作流',
+        '- 也可以下载本次运行的 `login-qrcode` artifact，打开图片后扫码（同样有时效）',
+        '- 或者在自己电脑上执行 `node scripts/bili-login.js` 扫码，效果一样',
+        '',
+      ].join('\n')
+    );
+    die('等待超时，未完成扫码登录。请重新运行本工作流并尽快扫码。');
+  }
 
   // ---- 3. 访问主站补齐设备 Cookie（buvid3 等）----
   let merged = mergeCookiePairs(cookiePairs);
@@ -518,6 +644,19 @@ async function main() {
   info('✓ 已更新仓库 Secret。定时任务下次运行就会使用新的登录态。');
   info('  小提示：Secret 只能写入不能读回，如需确认可到 Actions 页面跑一次「环境自检」。');
   info('');
+
+  appendSummary(
+    [
+      '---',
+      '',
+      `### ✅ 登录成功：${nickname}（UID ${mid}）`,
+      '',
+      `已更新仓库 Secret \`${args.secret}\`，之后的任务会自动使用这份新的登录态。`,
+      '',
+      '想确认是否生效，可以再跑一次「环境自检」。',
+      '',
+    ].join('\n')
+  );
 }
 
 // 作为脚本直接运行时才执行主流程，被 require 时可单独复用其中的函数
