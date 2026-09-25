@@ -88,7 +88,20 @@ const cookies = raw
   .filter(Boolean);
 
 if (cookies.length === 0) {
-  console.error('[prepare-env] 未配置 BILI_COOKIES（或 BILI_COOKIE），终止运行');
+  console.error(
+    [
+      '',
+      '::error title=缺少账号配置::未配置 BILI_COOKIES，任务无法运行。',
+      '',
+      '  解决办法（任选其一）：',
+      '    1. 在 Actions 页面运行「扫码登录（更新 Cookie）」工作流，手机扫码即可',
+      '    2. 本地执行 node scripts/bili-login.js 扫码，会自动写入仓库 Secret',
+      '    3. 手动到 Settings → Secrets and variables → Actions 新建 BILI_COOKIES',
+      '',
+      '  详细说明见仓库 README 的「获取登录凭据」一节。',
+      '',
+    ].join('\n')
+  );
   process.exit(1);
 }
 

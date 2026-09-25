@@ -89,14 +89,17 @@ function buildAgent(proxy) {
 // 参数解析
 // ============================================================
 function parseArgs(argv) {
+  // GitHub Actions 里没有图形界面，默认不尝试打开图片
+  const inCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
   const args = {
     repo: '',
     secret: 'BILI_COOKIES',
     token: '',
     extra: '',
     proxy: '',
+    qrOut: '',
     dryRun: false,
-    noOpen: false,
+    noOpen: inCI,
     timeout: 180,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -107,9 +110,11 @@ function parseArgs(argv) {
     else if (a === '--token') args.token = next();
     else if (a === '--extra') args.extra = next();
     else if (a === '--proxy') args.proxy = next();
+    else if (a === '--qr-out') args.qrOut = next();
     else if (a === '--timeout') args.timeout = parseInt(next(), 10) || 180;
     else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--no-open') args.noOpen = true;
+    else if (a === '--open') args.noOpen = false;
     else if (a === '--help' || a === '-h') {
       console.log(
         [
@@ -123,6 +128,7 @@ function parseArgs(argv) {
           '  --proxy <地址>        访问 GitHub 的代理，默认读 HTTPS_PROXY 环境变量',
           '  --extra <Cookie>     追加为第二个账号（多账号用 ||| 连接）',
           '  --no-open            不自动弹出二维码图片',
+          '  --qr-out <路径>      把二维码另存为 PNG（GitHub Actions 里作备份用）',
           '  --timeout <秒>        等待扫码的超时，默认 180',
           '',
         ].join('\n')
@@ -233,15 +239,22 @@ function openFile(p) {
   }
 }
 
-async function showQrCode(url, { noOpen }) {
-  // 终端内直接渲染，不依赖任何外部服务
+async function showQrCode(url, { noOpen, outPath }) {
+  // 终端内直接渲染（半块字符 + 反色，保证对比度），不依赖任何外部服务
   const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
+  console.log('');
+  console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
+  console.log('');
   console.log(terminal);
+  console.log('==============================================================');
+  console.log('');
 
-  // 同时落一张 PNG，方便手机扫屏幕或直接打开查看
-  const pngPath = path.join(os.tmpdir(), `bili-login-qrcode-${Date.now()}.png`);
+  // 同时落一张 PNG：本地便于直接查看，CI 里作为日志显示异常时的备份
+  const pngPath = outPath
+    ? path.resolve(outPath)
+    : path.join(os.tmpdir(), `bili-login-qrcode-${Date.now()}.png`);
   try {
-    await QRCode.toFile(pngPath, url, { width: 420, margin: 1 });
+    await QRCode.toFile(pngPath, url, { width: 480, margin: 1 });
     info(`二维码图片：${pngPath}`);
     if (!noOpen) {
       openFile(pngPath);
@@ -278,6 +291,9 @@ function inferRepo() {
 
 function resolveToken(cliToken) {
   if (cliToken) return cliToken;
+  // GitHub Actions 场景：gh 自动注入的 GITHUB_TOKEN 没有 Secrets 写权限，
+  // 必须用单独配置的 GH_PAT，所以它的优先级排在前面
+  if (process.env.GH_PAT) return process.env.GH_PAT;
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
   if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
   try {
@@ -358,13 +374,15 @@ async function main() {
   if (!genData || !genData.qrcode_key) die('未能获取 qrcode_key，B站接口可能已变更');
   const { qrcode_key: qrcodeKey, url: qrUrl } = genData;
 
-  await showQrCode(qrUrl, { noOpen: args.noOpen });
+  await showQrCode(qrUrl, { noOpen: args.noOpen, outPath: args.qrOut });
 
   // ---- 2. 轮询扫码结果 ----
   info('');
   info(`等待扫码中（最长 ${args.timeout} 秒）...`);
 
   const deadline = Date.now() + args.timeout * 1000;
+  const startedAt = Date.now();
+  let lastBeat = startedAt;
   let cookiePairs = [];
   let refreshToken = '';
   let lastState = '';
@@ -403,6 +421,12 @@ async function main() {
       refreshToken = (pd.data && pd.data.refresh_token) || '';
       info('  · 手机已确认登录');
       break;
+    }
+
+    // 心跳输出：GitHub Actions 里长时间没有日志会让人以为卡住了
+    if (Date.now() - lastBeat >= 15000) {
+      info(`  · 等待扫码...（已等待 ${Math.round((Date.now() - startedAt) / 1000)} 秒）`);
+      lastBeat = Date.now();
     }
   }
 
@@ -461,14 +485,21 @@ async function main() {
 
   const token = resolveToken(args.token);
   if (!token) {
-    warn('');
-    warn('未找到可用的 GitHub 凭据，改为输出 Cookie，请手动配置：');
-    warn(`  仓库 Settings → Secrets and variables → Actions → 新建 ${args.secret}`);
-    warn('');
+    console.log('');
+    console.log('###############################################################');
+    console.log('# 未找到可用的 GitHub 凭据，无法自动写入 Secret。');
+    console.log('# 请复制下面这一整行，粘贴到：');
+    console.log(`#   仓库 Settings → Secrets and variables → Actions → 更新 ${args.secret}`);
+    console.log('#');
+    console.log('# 想在云端自动完成，请在仓库里加一个 GH_PAT Secret（详见 README）。');
+    console.log('###############################################################');
+    console.log('');
     console.log(finalValue);
-    warn('');
-    warn('也可以重试并显式指定：--token <你的PAT>');
-    process.exit(2);
+    console.log('');
+    console.log(
+      `::warning title=需要手动配置::未能自动写入 Secret，请把上方 Cookie 复制到仓库的 ${args.secret}`
+    );
+    process.exit(0);
   }
 
   info('');

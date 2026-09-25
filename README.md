@@ -41,7 +41,7 @@
 > 官方文档原话是"扫码登录不需要进行人机验证"。GitHub Actions 是无人值守环境，过不了滑块，
 > 所以密码登录这条路在 B 站走不通。扫码登录才是唯一可行的自动化路径，而且它比抓包更省事。
 
-**方式一：扫码自动写入（推荐）**
+**方式一：本地扫码（推荐）**
 
 ```bash
 cd scripts && npm install && cd ..     # 首次需要，装两个小依赖
@@ -65,7 +65,18 @@ node scripts/bili-login.js
 凭据来源优先级：`--token` > 环境变量 `GITHUB_TOKEN`/`GH_TOKEN` > git 凭据管理器。
 写到 GitHub 的值用 libsodium sealed box 加密，明文不离开本机。
 
-**方式二：手动抓 Cookie**
+**方式二：在 GitHub 网页上扫码（不用装任何环境）**
+
+`Actions` → 左侧选 **扫码登录（更新 Cookie）** → 右侧 `Run workflow`。
+
+运行后点进这次运行，日志里会直接渲染出二维码，用手机「哔哩哔哩」App 扫一扫并确认，
+脚本拿到 Cookie 后会自动写回 `BILI_COOKIES`。日志看不清二维码时，
+可以从该次运行的 Artifacts 里下载 `login-qrcode` 图片。
+
+> 想让它**自动**写回，需要额外配一个 `GH_PAT` Secret（见下方「关于 GH_PAT」）。
+> 没配也能用：脚本会把 Cookie 完整打印在日志里，手动复制到 Secret 即可。
+
+**方式三：手动抓 Cookie**
 
 浏览器登录 B站 → `F12` → `Application` → `Cookies` → `https://www.bilibili.com`，拼成一行：
 
@@ -75,7 +86,21 @@ DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx; buvid3=xxx
 
 > 扫码拿到的是一份**独立会话**，跟你在浏览器/App 里的登录互不干扰 ——
 > 你在别处退出登录、清理浏览器数据，都不会让 Actions 里这份凭据失效。
-> `SESSDATA` 本身有效期约 30 天，到期重跑一次脚本扫码即可。
+> `SESSDATA` 本身有效期约 30 天，到期重跑一次扫码即可。
+
+#### 关于 GH_PAT（可选，但推荐配）
+
+「扫码登录」工作流要自动写回 Secret，需要它 —— **GitHub 自动注入的 `GITHUB_TOKEN` 没有 Secrets 读写权限**。
+
+请新建一个**细粒度 PAT**（Fine-grained token），不要用那种能删仓库的全权限 classic token：
+
+1. GitHub → `Settings` → `Developer settings` → `Personal access tokens` → `Fine-grained tokens` → `Generate new token`
+2. `Repository access` 选 **Only select repositories**，只勾 `BlBl`
+3. `Permissions` → `Repository permissions` → **Secrets → Read and write**
+4. 生成后复制，存到仓库 Secret，名称填 **`GH_PAT`**
+
+这样即使这个 token 泄露，影响面也仅限于这一个仓库的 Secret。
+
 
 ### 2. 配置 Secrets
 
@@ -109,15 +134,17 @@ DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx; buvid3=xxx
 | :--- | :--- |
 | `WEB_PROXY` | 访问 B站接口的代理，形如 `http://host:port`。仅在 Actions 出口 IP 被 B站风控时才需要配 |
 
-### 3. 启用 Actions 并自检
+### 3. 启用 Actions 并按顺序跑一遍
 
 刚建好的仓库默认关闭 Actions：
 
 1. 进入 `Actions` 标签页，点 **I understand my workflows, go ahead and enable them**
-2. 先跑 **环境自检**。它会编译 C# 引擎、安装抽奖依赖、并调用 B站只读接口校验 Cookie —— **不执行任何真实任务**（不投币、不关注、不转发）
-3. 自检全绿后，再手动跑一次 `Bili 日常任务` 和 `B站动态抽奖`
+2. 跑 **扫码登录（更新 Cookie）** —— 手机扫码拿到登录态并写入 Secret
+3. 跑 **环境自检** —— 编译 C# 引擎、安装抽奖依赖、调用 B站只读接口校验 Cookie。
+   全程 **不执行任何真实任务**（不投币、不关注、不转发）
+4. 自检全绿后，再手动跑一次 `Bili 日常任务` 和 `B站动态抽奖`
 
-手动跑通后，定时任务才会按计划启动。之后每次改了 Secrets，也可以重跑一次自检确认。
+手动跑通后，定时任务才会按计划启动。之后每次换了 Cookie，也可以重跑一次自检确认。
 
 ---
 
@@ -251,6 +278,7 @@ BlBl/
 ├── .github/workflows/
 │   ├── bili-daily.yml          # 日常任务（.NET 10）
 │   ├── lottery-daily.yml       # 动态抽奖（Node.js 22）
+│   ├── login.yml               # 扫码登录（网页上扫码，更新 Cookie）
 │   └── self-check.yml          # 环境自检（只读，不执行真实任务）
 ├── scripts/
 │   ├── bili-login.js           # 扫码登录并自动写入 GitHub Secret

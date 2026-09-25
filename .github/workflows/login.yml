@@ -1,0 +1,78 @@
+﻿# ============================================================
+# 扫码登录 — 在 GitHub 网页上直接扫码，自动更新 BILI_COOKIES
+#
+# 用法：Actions → 扫码登录（更新 Cookie）→ Run workflow
+# 运行后在日志里会出现二维码，用「哔哩哔哩」App 扫一扫并确认即可。
+#
+# 自动写入 Secret 需要额外配置 GH_PAT（见 README）；
+# 未配置时会退化为把 Cookie 打印在日志里，手动复制也行。
+# ============================================================
+name: 扫码登录（更新 Cookie）
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout:
+        description: '等待扫码的秒数'
+        required: false
+        default: '300'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: login
+  cancel-in-progress: false
+
+jobs:
+  login:
+    name: 扫码并更新登录态
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装脚本依赖
+        working-directory: scripts
+        run: npm install --no-audit --no-fund
+
+      - name: 扫码登录
+        working-directory: scripts
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          # GitHub 自己注入的 GITHUB_TOKEN 没有 Secrets 读写的权限，
+          # 所以自动写回必须依赖上面这个 GH_PAT
+        run: |
+          node bili-login.js \
+            --repo "${{ github.repository }}" \
+            --secret BILI_COOKIES \
+            --timeout "${{ inputs.timeout || '300' }}" \
+            --qr-out qrcode.png
+
+      - name: 上传二维码图片
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-qrcode
+          path: scripts/qrcode.png
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: 后续说明
+        if: always()
+        run: |
+          cat <<'EOF'
+          ============================================================
+          日志里出现「已更新仓库 Secret」即表示登录态已经换新，
+          之后定时任务会自动使用它。
+          想确认是否生效，可以再跑一次「环境自检」。
+          ============================================================
+          EOF
