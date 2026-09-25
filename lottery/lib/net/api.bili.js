@@ -6,6 +6,7 @@ module.exports = Object.freeze({
     DYNAMIC_SVR_CREATE_DRAW: 'https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/create_draw',
     DYNAMIC_SVR_CREATE: 'https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/create',
     DYNAMIC_SVR_RM_DYNAMIC: 'https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/rm_dynamic',
+    /* 已废弃：B站老接口，返回 404 错误页，关注列表请用 RELATION_FOLLOWINGS */
     FEED_GET_ATTENTION_LIST: 'https://api.vc.bilibili.com/feed/v1/feed/get_attention_list',
     FEED_SETUSERFOLLOW: 'https://api.vc.bilibili.com/feed/v1/feed/SetUserFollow',
     FETCH_SESSION_MSGS: 'https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs',
@@ -15,6 +16,7 @@ module.exports = Object.freeze({
     MSGFEED_UNREAD: 'https://api.bilibili.com/x/msgfeed/unread',
     READ_CV: 'https://www.bilibili.com/read/cv{{cv}}/',
     RELATION_BATCH_MODIFY: 'https://api.bilibili.com/x/relation/batch/modify',
+    RELATION_FOLLOWINGS: 'https://api.bilibili.com/x/relation/followings',
     RELATION_MODIFY: 'https://api.bilibili.com/x/relation/modify',
     RELATION_STAT: 'https://api.bilibili.com/x/relation/stat',
     RELATION_TAG_CREATE: 'https://api.bilibili.com/x/relation/tag/create',

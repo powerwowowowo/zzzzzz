@@ -376,25 +376,61 @@ const bili_client = {
     },
     /**
      * 获取关注列表
+     *
+     * 原实现使用的是 api.vc.bilibili.com/feed/v1/feed/get_attention_list，
+     * 那是 B站的老接口，现已下线（直接返回 404 错误页），因此改用现行的
+     * /x/relation/followings 并分页取全量。
+     *
+     * 返回值与原实现保持一致：所有关注的 uid 用英文逗号拼成的字符串，
+     * 调用方（monitor.js）用正则 test 判断某个 uid 是否已关注。
+     *
      * @param {number} uid
-     * @returns {Promise<string | null>}
+     * @returns {Promise<string>}
      */
     async getAttentionList(uid) {
-        const
-            responseText = await get({
-                url: API.FEED_GET_ATTENTION_LIST,
+        const ps = 50; /* 单页上限 */
+        const maxPage = 40; /* 防御：最多取 2000 个关注，避免异常时死循环 */
+        const uids = [];
+        let total = Infinity;
+
+        for (let pn = 1; pn <= maxPage && uids.length < total; pn++) {
+            const responseText = await get({
+                url: API.RELATION_FOLLOWINGS,
                 query: {
-                    uid
+                    vmid: uid,
+                    pn,
+                    ps,
+                    order: 'desc',
+                    order_type: 'attention'
                 }
             }),
-            res = strToJson(responseText);
-        if (res.code === 0) {
-            log.info('获取关注列表', '成功');
-            return res.data.list.toString();
-        } else {
-            log.error('获取关注列表', `失败\n${responseText}`);
-            return null;
+                res = strToJson(responseText);
+
+            if (!res || res.code !== 0) {
+                log.error('获取关注列表', `失败(第${pn}页)\n${responseText}`);
+                break;
+            }
+
+            const list = (res.data && res.data.list) || [];
+            total = res.data && typeof res.data.total === 'number'
+                ? res.data.total
+                : list.length;
+
+            /* 新接口返回的是对象数组，uid 在 mid 字段（老接口是纯数字数组） */
+            for (const it of list) {
+                if (it && it.mid) uids.push(it.mid);
+            }
+
+            if (list.length < ps) break;
         }
+
+        if (!uids.length) {
+            log.warn('获取关注列表', '未取到任何关注，后续将按「未关注」处理');
+            return '';
+        }
+
+        log.info('获取关注列表', `成功 共 ${uids.length} 个`);
+        return uids.join(',');
     },
     /**
      * @param {string} short_id
