@@ -9,13 +9,15 @@
 # ============================================================
 name: 扫码登录（更新 Cookie）
 
+run-name: 扫码登录 #${{ github.run_number }} · 请点开日志里的二维码链接
+
 on:
   workflow_dispatch:
     inputs:
       timeout:
         description: '等待扫码的秒数'
         required: false
-        default: '300'
+        default: '600'
         type: string
 
 permissions:
