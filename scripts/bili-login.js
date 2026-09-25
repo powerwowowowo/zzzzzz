@@ -350,17 +350,16 @@ async function showQrCode(
 ) {
   const inCI = Boolean(process.env.GITHUB_STEP_SUMMARY);
 
-  // GitHub Actions 场景优先走 Summary：日志每行都带时间戳前缀，
-  // 会破坏二维码左侧静默区，扫起来很不稳。
+  // GitHub Actions 场景不依赖 Summary 做实时扫码：
+  // 官方文档写明 summary 要等 job 结束后才聚合渲染，而本步骤一直在等扫码。
+  // Summary 仍然写一份，留作运行结束后回看。
   if (writeToSummary(url, { overwrite })) {
-    if (!quiet) info('二维码已写入本次运行的 Summary 面板（页面顶部），扫那里');
+    if (!quiet && inCI) info('（Summary 面板要等运行结束才会显示，实时扫码请用下方图片链接）');
   }
 
   if (!quiet) {
     if (logQr || !inCI) {
-      // 只有本地终端（或显式 --log-qr）才输出字符二维码。
-      // GitHub 的日志视图会把 ANSI 反色渲染成一整块色块 —— 既难看又完全扫不出来，
-      // 所以 CI 环境下默认不输出。
+      // 本地终端：直接渲染字符二维码（终端对 ANSI 支持正常）
       const terminal = await QRCode.toString(url, { type: 'terminal', small: true });
       console.log('');
       console.log('=============== 用「哔哩哔哩」App 扫描下方二维码 ===============');
@@ -369,10 +368,29 @@ async function showQrCode(
       console.log('==============================================================');
       console.log('');
     } else {
+      // GitHub Actions 环境。
+      //
+      // 为什么不用 Job Summary：官方文档写明 summary 要等 job 结束后才会
+      // 聚合渲染，而本步骤要一直等扫码，用户根本看不到。
+      // 也用不了终端二维码：日志视图不做 ANSI 反色渲染，会糊成一整块色块。
+      //
+      // 所以这里给一个「图片直链」—— 日志是实时流式的，链接一出现就能点，
+      // 点开是一张干净的二维码图片，手机扫屏幕即可。
+      const imgLink =
+        'https://api.qrserver.com/v1/create-qr-code/?size=520x520&margin=14&data=' +
+        encodeURIComponent(url);
+      const bar = '='.repeat(72);
       console.log('');
-      console.log('（日志里刻意不输出二维码图形：Actions 日志视图会把它渲染成色块，扫不出来）');
-      console.log('  请扫本次运行 Summary 面板里的二维码，或下载 login-qrcode 附件查看图片。');
+      console.log(bar);
+      console.log('  请点开下面的链接查看二维码（新标签页会显示一张干净的图片）');
       console.log('');
+      console.log(`  ${imgLink}`);
+      console.log('');
+      console.log('  手机用「哔哩哔哩」App 扫屏幕上那张图，然后点确认。');
+      console.log('  二维码约 3 分钟过期，过期后本日志会立即出现新的链接。');
+      console.log(bar);
+      console.log('');
+      console.log(`::notice title=点开链接看二维码::${imgLink}`);
     }
   }
 
@@ -490,7 +508,7 @@ async function main() {
   info('');
   info('=== B站扫码登录 ===');
   if (process.env.GITHUB_STEP_SUMMARY) {
-    info('提示：二维码在本页面上方的 Summary 面板里，用「哔哩哔哩」App 扫一扫并确认。');
+    info('提示：稍等片刻，下方会输出一个二维码图片链接 —— 点开就是二维码，手机扫屏幕即可。');
   } else {
     info('提示：用「哔哩哔哩」App 的扫一扫，扫描下方二维码并在手机上确认。');
   }
@@ -573,11 +591,10 @@ async function main() {
       qrcodeKey = againData.qrcode_key;
       qrUrl = againData.url;
 
-      // 覆盖 Summary 与 PNG，日志不再重复输出整块二维码
+      // 覆盖 Summary 与 PNG，并重新给出图片直链（旧链接对应的二维码已失效）
       await showQrCode(qrUrl, {
         noOpen: true,
         outPath: args.qrOut,
-        quiet: true,
         overwrite: true,
       });
       lastState = '';
