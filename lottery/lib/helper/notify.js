@@ -965,9 +965,12 @@ function feishuNotify(text, desp) {
 async function qmsg(text, desp) {
     return new Promise(resolve => {
         if (QMSG_KEY) {
+            // 官方站点已上线 v3 接口，旧 /send 接口返回体里带了「即将废弃」提示；
+            // 自建服务(Qmsg 2.0)只有 /send，因此按域名区分，两者参数一致
+            const qmsg_path = QMSG_SOCKET === 'qmsg.zendee.cn' ? 'v3/send' : 'send';
             send({
                 method: 'POST',
-                url: `https://${QMSG_SOCKET}/send/${QMSG_KEY}`,
+                url: `https://${QMSG_SOCKET}/${qmsg_path}/${QMSG_KEY}`,
                 contents: {
                     msg: text + '\n\n' + desp,
                     qq: QMSG_QQ
@@ -982,7 +985,8 @@ async function qmsg(text, desp) {
                 success: res => {
                     try {
                         const data = JSON.parse(res.body);
-                        if (data.code === 200) {
+                        // 官方返回 {success:true, code:0}，旧版返回 code:200，都算成功
+                        if (data.code === 200 || data.code === 0 || data.success === true) {
                             log.info('发送通知', 'qmsg发送通知消息完成。');
                         } else {
                             log.error('发送通知', `qmsg通知消息失败: ${data.reason}`);

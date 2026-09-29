@@ -66,6 +66,9 @@ jobs:
           QYWX_KEY: ${{ secrets.QYWX_KEY }}
           DINGTALK_TOKEN: ${{ secrets.DINGTALK_TOKEN }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          QMSG_KEY: ${{ secrets.QMSG_KEY }}
+          QMSG_QQ: ${{ secrets.QMSG_QQ }}
+          QMSG_SOCKET: ${{ secrets.QMSG_SOCKET }}
           WEB_PROXY: ${{ secrets.WEB_PROXY }}
         run: node scripts/prepare-env.js lottery
 
@@ -85,6 +88,13 @@ jobs:
         run: |
           set -o pipefail
           node main.js "${ACTION}" 2>&1 | tee run.log
+
+      # 只有 check 模式才会走中奖判定并触发推送，定时运行默认补跑一次
+      - name: 中奖检测（命中后触发推送）
+        if: ${{ inputs.action != 'check' }}
+        run: |
+          set -o pipefail
+          node main.js check 2>&1 | tee -a run.log
 
       - name: 检查运行结果
         if: always()

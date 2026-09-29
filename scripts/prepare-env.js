@@ -20,6 +20,9 @@
  *   QYWX_KEY          可选，企业微信群机器人 key 或完整 webhook
  *   DINGTALK_TOKEN    可选，钉钉机器人 access_token 或完整 webhook
  *   DINGTALK_SECRET   可选，钉钉机器人加签密钥
+ *   QMSG_KEY          可选，Qmsg 酱 key（QQ 推送，仅 lottery 引擎支持）
+ *   QMSG_QQ           可选，指定接收消息的 QQ 号，留空则发给 key 绑定的默认 QQ
+ *   QMSG_SOCKET       可选，Qmsg 自建服务地址，留空走官方 qmsg.zendee.cn
  *   WEB_PROXY         可选，访问 B 站接口的代理，形如 http://host:port
  *                     （带鉴权为 http://user:pass@host:port）
  */
@@ -171,6 +174,7 @@ if (process.env.SERVERCHAN_KEY) push.push('Server酱');
 if (process.env.TG_BOT_TOKEN) push.push('Telegram');
 if (process.env.QYWX_KEY) push.push('企业微信');
 if (process.env.DINGTALK_TOKEN) push.push('钉钉');
+if (process.env.QMSG_KEY) push.push('Qmsg酱');
 
 if (ENGINE === 'bili-tool') {
   // 对应 appsettings.json 里 Serilog:WriteTo 数组的下标
@@ -197,6 +201,9 @@ if (ENGINE === 'bili-tool') {
         : `https://oapi.dingtalk.com/robot/send?access_token=${process.env.DINGTALK_TOKEN}`
     );
   }
+  if (process.env.QMSG_KEY) {
+    summary.push('Qmsg酱: 本引擎(C#)无此渠道，仅抽奖引擎会推送');
+  }
 } else {
   setEnv('SENDKEY', process.env.SERVERCHAN_KEY);
   setEnv('PUSH_PLUS_TOKEN', process.env.PUSH_PLUS_TOKEN);
@@ -205,6 +212,10 @@ if (ENGINE === 'bili-tool') {
   setEnv('QYWX_KEY', process.env.QYWX_KEY);
   setEnv('DD_BOT_TOKEN', process.env.DINGTALK_TOKEN);
   setEnv('DD_BOT_SECRET', process.env.DINGTALK_SECRET);
+  // Qmsg 酱：LotteryAutoScript 原生支持，BiliBiliToolPro 无此渠道
+  setEnv('QMSG_KEY', process.env.QMSG_KEY);
+  setEnv('QMSG_QQ', process.env.QMSG_QQ);
+  setEnv('QMSG_SOCKET', process.env.QMSG_SOCKET);
 }
 
 // ---------------------------------------------------------------

@@ -127,6 +127,12 @@ DedeUserID=xxx; SESSDATA=xxx; bili_jct=xxx; buvid3=xxx
 | `TG_BOT_TOKEN` + `TG_CHAT_ID` | Telegram |
 | `QYWX_KEY` | 企业微信群机器人 key 或完整 webhook |
 | `DINGTALK_TOKEN` + `DINGTALK_SECRET` | 钉钉机器人 |
+| `QMSG_KEY` | Qmsg 酱（QQ 推送）。留空则发给该 key 绑定的默认 QQ |
+| `QMSG_QQ` | 可选，指定接收消息的 QQ 号（需在 Qmsg 管理台已添加） |
+| `QMSG_SOCKET` | 可选，Qmsg 自建服务地址，留空走官方 `qmsg.zendee.cn` |
+
+> Qmsg 酱只有抽奖引擎（`lottery/`）支持，BiliBiliToolPro 侧无此渠道；
+> 中奖检测在每次抽奖任务结束后自动补跑一次 `check`，命中后所有已配置的渠道都会收到播报。
 
 **可选 —— 其他**
 
